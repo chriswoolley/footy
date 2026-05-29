@@ -5,18 +5,46 @@ import { useAuth } from "../auth";
 import { Pitch } from "../components/Pitch";
 import { Dugout } from "../components/Dugout";
 import { SquadActivity } from "../components/SquadActivity";
+import { PendingChanges } from "../components/PendingChanges";
 
 const POS_NAME = { 1: "GK", 2: "DEF", 3: "MID", 4: "FWD" } as const;
+
+type PendingRow = {
+  id: number;
+  kind: "PLAY" | "BENCH";
+  toSlot: number | null;
+  effectiveAt: string;
+  createdAt: string;
+  incoming: {
+    playerId: number;
+    name: string;
+    teamShort: string;
+    position: number;
+    photoUrl: string | null;
+  } | null;
+  outgoing: {
+    playerId: number;
+    name: string;
+    teamShort: string;
+    position: number;
+    photoUrl: string | null;
+  } | null;
+};
 
 export default function Squad() {
   const { me, refresh: refreshMe } = useAuth();
   const [squad, setSquad] = useState<SquadDTO | null>(null);
+  const [pending, setPending] = useState<PendingRow[]>([]);
   const [err, setErr] = useState<string | null>(null);
 
   async function load() {
     try {
-      const s = await api.get<SquadDTO>("/api/squad");
+      const [s, p] = await Promise.all([
+        api.get<SquadDTO>("/api/squad"),
+        api.get<PendingRow[]>("/api/squad/pending"),
+      ]);
       setSquad(s);
+      setPending(p);
     } catch (e: any) {
       setErr(e.message);
     }
@@ -26,6 +54,16 @@ export default function Squad() {
     load();
   }, []);
 
+  // Player IDs that have a pending change — locked from drag/drop until the
+  // queued change either commits or is cancelled.
+  const lockedPlayerIds = new Set<number>();
+  const lockedSlots = new Set<number>();
+  for (const p of pending) {
+    if (p.incoming) lockedPlayerIds.add(p.incoming.playerId);
+    if (p.outgoing) lockedPlayerIds.add(p.outgoing.playerId);
+    if (p.toSlot != null) lockedSlots.add(p.toSlot);
+  }
+
   async function setFormation(f: "442" | "433") {
     await api.post("/api/squad/formation", { formation: f });
     await refreshMe();
@@ -33,6 +71,10 @@ export default function Squad() {
   }
 
   async function dropOnSlot(playerId: number, slot: number) {
+    if (lockedPlayerIds.has(playerId) || lockedSlots.has(slot)) {
+      setErr("that player or slot has a pending change — cancel it first");
+      return;
+    }
     try {
       await api.post("/api/squad/play", { playerId, slot });
       load();
@@ -42,6 +84,10 @@ export default function Squad() {
   }
 
   async function bench(playerId: number) {
+    if (lockedPlayerIds.has(playerId)) {
+      setErr("that player already has a pending change — cancel it first");
+      return;
+    }
     await api.post("/api/squad/bench", { playerId });
     load();
   }
@@ -88,10 +134,16 @@ export default function Squad() {
               entries={squad.entries}
               onDropOnSlot={dropOnSlot}
               onBench={bench}
+              lockedPlayerIds={lockedPlayerIds}
+              lockedSlots={lockedSlots}
             />
           </div>
           <div className="w-32 flex-shrink-0">
-            <Dugout bench={benched} onBench={bench} />
+            <Dugout
+              bench={benched}
+              onBench={bench}
+              lockedPlayerIds={lockedPlayerIds}
+            />
           </div>
         </div>
         <div className="mt-4 flex justify-between text-sm">
@@ -187,6 +239,11 @@ export default function Squad() {
         </p>
       </div>
     </div>
+
+    <section className="bg-white rounded shadow border border-slate-200 p-4">
+      <h3 className="font-bold mb-2 text-sm">Pending changes</h3>
+      <PendingChanges rows={pending} onChanged={load} />
+    </section>
 
     <section className="bg-white rounded shadow border border-slate-200 p-4">
       <SquadActivity />

@@ -50,19 +50,28 @@ const PROFILES: Array<{ username: string; teamName: string; password: string }> 
   { username: "nate", teamName: "Counter Punch FC", password: "nate123" },
   { username: "ali", teamName: "Goal Line Guards", password: "ali123" },
   { username: "vera", teamName: "Substitute Stars", password: "vera123" },
+  { username: "zoe", teamName: "Park-the-Bus FC", password: "zoe123" },
+  { username: "ryan", teamName: "Direct Runners", password: "ryan123" },
+  { username: "amelia", teamName: "Long Throw Lions", password: "amelia123" },
+  { username: "noah", teamName: "Tiki-Taka Tigers", password: "noah123" },
+  { username: "ella", teamName: "Gegenpress Gang", password: "ella123" },
+  { username: "kit", teamName: "Catenaccio Crew", password: "kit123" },
+  { username: "milo", teamName: "Total Football XI", password: "milo123" },
+  { username: "sara", teamName: "Long Ball Legends", password: "sara123" },
+  { username: "drew", teamName: "Wide Wing Wonders", password: "drew123" },
+  { username: "elsa", teamName: "Last Minute Heroes", password: "elsa123" },
 ];
 
-// 20-player squad: 2 GK + 7 DEF + 8 MID + 3 FWD. The FWD pool is the
-// scarcest (~66 eligible), so 20 managers × 3 FWD = 60 still leaves a few
-// floating forwards for mid-season swaps. Starting XI (1-4-4-2) fills
-// formation slots 0..10; the remaining 9 go to the bench/dugout.
-const SQUAD_COMPOSITION: Array<[number, number]> = [
-  [1, 2], // GK
-  [2, 7], // DEF
-  [3, 8], // MID
-  [4, 3], // FWD
-];
-const SQUAD_SIZE = 20;
+// 40 teams × 20 unique players ≈ 800 against an ~841 pool with strict per-
+// position caps that none of the standard fixed compositions fit. So we
+// guarantee each team the 1-4-4-2 starting-XI minimum first, then top up
+// from any-position cheapest fillers until SQUAD_TARGET — some teams may
+// finish at SQUAD_TARGET − 1 once the FWD/DEF pool runs out.
+const SQUAD_TARGET = 20;
+const SQUAD_MIN = 11;
+// Backwards-compat: integrity check + bench-count uses SQUAD_SIZE.
+// Treat as "target" — managers may have 19..20 depending on pool exhaustion.
+const SQUAD_SIZE = SQUAD_TARGET;
 const STARTERS_BY_POS: Record<number, number> = { 1: 1, 2: 4, 3: 4, 4: 2 };
 
 function rng(seed: number) {
@@ -136,7 +145,6 @@ function pickInitialSquad(
   for (const p of pool) {
     if (!claimed.has(p.id)) byPos[p.position].push(p);
   }
-  // Shuffle the top of each bucket so different managers get different upgrades.
   for (const pos of [1, 2, 3, 4]) {
     byPos[pos].sort((a, b) => b.totalPoints - a.totalPoints);
     const top = byPos[pos].slice(0, 30);
@@ -147,29 +155,82 @@ function pickInitialSquad(
     byPos[pos] = top.concat(byPos[pos].slice(30));
   }
 
-  // Step 1 — build the minimum-cost squad (cheapest N at each position). This
-  // guarantees the cost floor is reachable; everything else is an upgrade.
   const picks: P[] = [];
+  const pickedIds = new Set<number>();
+  const posCount: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0 };
   let spent = 0;
-  for (const [pos, count] of SQUAD_COMPOSITION) {
+
+  // Step 1: cheapest starting-XI minimum at each position (1-4-4-2).
+  for (const [pos, count] of [[1, 1], [2, 4], [3, 4], [4, 2]] as const) {
     const cheapest = [...byPos[pos]].sort((a, b) => a.nowCost - b.nowCost);
     for (let i = 0; i < count; i++) {
-      const p = cheapest[i]!;
+      const p = cheapest[i];
+      if (!p) continue;
       picks.push(p);
+      pickedIds.add(p.id);
+      posCount[pos]++;
       spent += p.nowCost;
     }
   }
-  if (spent > budgetTimesTen) {
-    // Even the floor is over budget — caller will detect via squad.length mismatch.
+  if (picks.length < SQUAD_MIN) {
+    // Pool is genuinely too thin at some position — caller will detect.
     return picks;
   }
 
-  // Step 2 — greedy upgrades. For each high-totalPoints candidate (already in
-  // shuffled-top-first order), replace the same-position pick with the lowest
-  // totalPoints, provided we have the budget delta.
+  // Per-position caps: with 40 teams and pool sizes (GK 97 / DEF 270 / MID
+  // 379 / FWD 95) the per-team ceiling is 2/6/9/2 = 19. Keep step 2 inside
+  // those caps so no one team drains a position pool dry for later teams.
+  const maxPerPos: Record<number, number> = { 1: 2, 2: 6, 3: 9, 4: 2 };
+
+  // Precompute the cheapest unclaimed-at-this-position list once, refresh
+  // lazily as we pick. Outer byPos[] is in totalPoints-desc order so we keep
+  // a per-position cheapest sort.
+  const cheapestByPos: Record<number, P[]> = { 1: [], 2: [], 3: [], 4: [] };
+  for (const pos of [1, 2, 3, 4]) {
+    cheapestByPos[pos] = [...byPos[pos]].sort((a, b) => a.nowCost - b.nowCost);
+  }
+  function pickCheapestRespectingCaps(allowOverCap: boolean): { p: P; pos: number } | null {
+    let best: { p: P; pos: number } | null = null;
+    for (const pos of [1, 2, 3, 4]) {
+      if (!allowOverCap && posCount[pos]! >= maxPerPos[pos]!) continue;
+      // Find first unclaimed-and-affordable at this position.
+      for (const p of cheapestByPos[pos]) {
+        if (pickedIds.has(p.id)) continue;
+        if (spent + p.nowCost > budgetTimesTen) continue;
+        if (!best || p.nowCost < best.p.nowCost) best = { p, pos };
+        break;
+      }
+    }
+    return best;
+  }
+
+  // Step 2: fill toward SQUAD_TARGET, respecting per-pos caps.
+  while (picks.length < SQUAD_TARGET) {
+    const bestPick = pickCheapestRespectingCaps(false);
+    if (!bestPick) break;
+    picks.push(bestPick.p);
+    pickedIds.add(bestPick.p.id);
+    posCount[bestPick.pos]++;
+    spent += bestPick.p.nowCost;
+  }
+
+  // Step 2½: caps top out at 19; relax once and grab any cheapest extra to
+  // round us up to 20 if pool/budget allow.
+  if (picks.length < SQUAD_TARGET) {
+    const bestPick = pickCheapestRespectingCaps(true);
+    if (bestPick) {
+      picks.push(bestPick.p);
+      pickedIds.add(bestPick.p.id);
+      posCount[bestPick.pos]++;
+      spent += bestPick.p.nowCost;
+    }
+  }
+
+  // Step 3: greedy upgrades within budget — for each high-totalPoints
+  // candidate, swap in for the lowest-totalPoints same-position pick.
   for (const pos of [1, 2, 3, 4]) {
     for (const upgrade of byPos[pos]) {
-      if (picks.some((p) => p.id === upgrade.id)) continue;
+      if (pickedIds.has(upgrade.id)) continue;
       const samePosPicks = picks
         .map((p, idx) => ({ p, idx }))
         .filter(({ p }) => p.position === pos)
@@ -178,6 +239,8 @@ function pickInitialSquad(
       if (!worst || upgrade.totalPoints <= worst.p.totalPoints) continue;
       const delta = upgrade.nowCost - worst.p.nowCost;
       if (spent + delta <= budgetTimesTen) {
+        pickedIds.delete(worst.p.id);
+        pickedIds.add(upgrade.id);
         picks[worst.idx] = upgrade;
         spent += delta;
       }
@@ -203,8 +266,8 @@ async function seedInitialSquads(
     seed += 1;
     const rand = rng(seed);
     const squad = pickInitialSquad(rand, pool, claimed, squadBudgetTimesTen);
-    if (squad.length !== SQUAD_SIZE) {
-      throw new Error(`${profile.teamName}: only got ${squad.length}/${SQUAD_SIZE}`);
+    if (squad.length < SQUAD_MIN) {
+      throw new Error(`${profile.teamName}: only got ${squad.length} (need ≥ ${SQUAD_MIN})`);
     }
     for (const p of squad) claimed.add(p.id);
 
@@ -235,8 +298,11 @@ async function seedInitialSquads(
     if (starters.length !== 11) {
       throw new Error(`${profile.teamName}: starters=${starters.length}, expected 11`);
     }
-    if (bench.length !== SQUAD_SIZE - 11) {
-      throw new Error(`${profile.teamName}: bench=${bench.length}, expected ${SQUAD_SIZE - 11}`);
+    // Bench is squad-size − 11; squad size may legitimately be < SQUAD_TARGET
+    // if the pool ran out at some position.
+    const expectedBench = squad.length - 11;
+    if (bench.length !== expectedBench) {
+      throw new Error(`${profile.teamName}: bench=${bench.length}, expected ${expectedBench}`);
     }
 
     // Assign starters to 442 slots 0..10 by position.
@@ -301,10 +367,10 @@ async function seedInitialSquads(
         when: bidResolvedAt,
         managerId: manager.id,
         teamName: profile.teamName,
-        reason: `${profile.teamName} joined with ${SQUAD_SIZE} players (11 starters, ${SQUAD_SIZE - 11} bench).`,
+        reason: `${profile.teamName} joined with ${squad.length} players (11 starters, ${squad.length - 11} bench).`,
       },
     });
-    log(`  ${profile.teamName.padEnd(22)}  ${SQUAD_SIZE} players (11 + ${SQUAD_SIZE - 11} bench)`);
+    log(`  ${profile.teamName.padEnd(22)}  ${squad.length} players (11 + ${squad.length - 11} bench)`);
   }
   return { managerIds, claimed };
 }
@@ -343,19 +409,49 @@ async function cumulativePointsAtGw(playerId: number, gw: number): Promise<numbe
   return rows.reduce((s, r) => s + r.points, 0);
 }
 
-async function attemptWeeklySwap(
+type SwapTarget = {
+  player: P;
+  recent: number;
+  cumulative: number;
+  bidAmount: number;
+  auctionBoost: number;
+};
+
+type SwapIntent = {
+  managerId: number;
+  managerTeam: string;
+  worst: {
+    entryId: number;
+    playerId: number;
+    pos: number;
+    slot: number | null;
+    bid: number;
+    pointsToDate: number;
+    lastGwPts: number;
+    webName: string;
+    sellPrice: number;
+  };
+  freeBalance: number;
+  targets: SwapTarget[];
+};
+
+// Compute the manager's intent for the gameweek — who to sell, which targets
+// to bid on (ranked), and how much. No DB writes. Used by the auction
+// orchestrator in simulateSeason.
+async function prepareSwapIntent(
   managerId: number,
+  managerTeam: string,
   pool: P[],
   swapAt: Date,
   gw: number,
   rand: () => number,
-  log: Log,
-): Promise<boolean> {
+  ownedByOthers: Set<number>,
+): Promise<SwapIntent | null> {
   const starters = await prisma.squadEntry.findMany({
     where: { managerId, untilAt: FOREVER, playing: true },
     include: { player: true },
   });
-  if (starters.length === 0) return false;
+  if (starters.length === 0) return null;
 
   // Score each starter: cumulative pts to date AND points in the latest GW
   // (so we can spot likely-injured 0-scorers).
@@ -429,23 +525,17 @@ async function attemptWeeklySwap(
   );
   const freeBalance = BUDGET - activeSpent - pastLosses + worstSellPrice;
 
-  // Claimed pool = anyone currently owned by anyone.
-  const claimedRows = await prisma.squadEntry.findMany({
-    where: { untilAt: FOREVER },
-    select: { playerId: true },
-  });
-  const claimed = new Set(claimedRows.map((c) => c.playerId));
-
-  // Candidate replacements: same position, not claimed (except worst itself),
-  // affordable, with higher cumulative points to date than worst.
+  // Candidate replacements: same position, not currently owned by another
+  // manager, affordable. (worst is "owned by self" but we ARE selling them,
+  // so even if they're in ownedByOthers from an earlier scan we skip them.)
   const candidatesPool = pool.filter(
     (p) =>
       p.position === worst.pos &&
-      !claimed.has(p.id) &&
+      !ownedByOthers.has(p.id) &&
       p.id !== worst.playerId &&
       p.nowCost / 10 <= freeBalance,
   );
-  if (candidatesPool.length === 0) return false;
+  if (candidatesPool.length === 0) return null;
 
   // Score by *recent* form (last 5 GWs) + a quarter of cumulative — mirrors
   // how a real manager picks: hot players first, with season totals breaking
@@ -467,119 +557,177 @@ async function attemptWeeklySwap(
       score: recent + cumulative / 4,
     });
   }
-  if (scoredCandidates.length === 0) return false;
+  if (scoredCandidates.length === 0) return null;
   scoredCandidates.sort((a, b) => b.score - a.score);
 
-  // Pick from the top 5 with a little noise for variety.
+  // Top 5 candidates ranked by score. We'll shuffle slightly so each manager
+  // can express a different preference order and not always converge on the
+  // same #1 pick — gives the auction more variety.
   const top = scoredCandidates.slice(0, 5);
-  const chosen = top[Math.floor(rand() * top.length)];
-
-  // Place bid at 18:00 the previous day; resolve at 01:00 on swapAt day.
-  const placedAt = new Date(swapAt.getTime() - 7 * 60 * 60 * 1000); // 7 hours earlier
-  // Bids always land above book. Premium tiers + random boost scale with
-  // quality, then an "auction" premium kicks in if the target was recently
-  // sold and is scoring again — that's the classic returning-from-injury
-  // scenario where multiple managers chase the same player.
-  const book = chosen.player.nowCost / 10;
-  let premium = 0.75;
-  if (chosen.cumulative >= 150) premium = 4.0;
-  else if (chosen.cumulative >= 100) premium = 3.0;
-  else if (chosen.cumulative >= 50) premium = 1.5;
-  const boost = rand() * premium * 1.5;
-
-  // Auction premium: was this player sold by another manager in the last 4
-  // weeks AND have they scored in the most recent GW? If so, treat as
-  // "returning from injury" — several teams would bid, pushing up the price.
-  const fourWeeksAgo = new Date(swapAt.getTime() - 4 * 7 * 24 * 60 * 60 * 1000);
-  const wasRecentlySold = await prisma.squadEntry.findFirst({
-    where: {
-      playerId: chosen.player.id,
-      untilAt: { gt: fourWeeksAgo, lt: FOREVER },
-    },
-    select: { id: true },
-  });
-  let auctionBoost = 0;
-  if (wasRecentlySold && chosen.recent > 0) {
-    // Random 0..£3m extra — represents winning a contested auction.
-    auctionBoost = rand() * 3.0;
+  for (let i = top.length - 1; i > 0; i--) {
+    if (rand() < 0.35) {
+      const j = Math.floor(rand() * (i + 1));
+      [top[i], top[j]] = [top[j]!, top[i]!];
+    }
   }
 
-  const bidAmount = Math.min(book + premium + boost + auctionBoost, freeBalance);
+  // Compute a bid amount for each target — premium tier + random boost +
+  // optional auction premium if the player was recently sold and is scoring
+  // again. Capped to freeBalance so we never over-spend.
+  const fourWeeksAgo = new Date(swapAt.getTime() - 4 * 7 * 24 * 60 * 60 * 1000);
+  const targets: SwapTarget[] = [];
+  for (const c of top) {
+    const book = c.player.nowCost / 10;
+    let premium = 0.75;
+    if (c.cumulative >= 150) premium = 4.0;
+    else if (c.cumulative >= 100) premium = 3.0;
+    else if (c.cumulative >= 50) premium = 1.5;
+    const boost = rand() * premium * 1.5;
+
+    const wasRecentlySold = await prisma.squadEntry.findFirst({
+      where: {
+        playerId: c.player.id,
+        untilAt: { gt: fourWeeksAgo, lt: FOREVER },
+      },
+      select: { id: true },
+    });
+    let auctionBoost = 0;
+    if (wasRecentlySold && c.recent > 0) {
+      auctionBoost = rand() * 3.0;
+    }
+    const bidAmount = Math.min(book + premium + boost + auctionBoost, freeBalance);
+    targets.push({
+      player: c.player,
+      recent: c.recent,
+      cumulative: c.cumulative,
+      bidAmount,
+      auctionBoost,
+    });
+  }
+
+  return {
+    managerId,
+    managerTeam,
+    worst: { ...worst, sellPrice: worstSellPrice },
+    freeBalance,
+    targets,
+  };
+}
+
+// Commit a winning auction: sell the manager's worst, buy the chosen player,
+// record the winning bid + Signed/Sold paper-talks.
+async function applySwap(
+  intent: SwapIntent,
+  target: SwapTarget,
+  swapAt: Date,
+  log: Log,
+  outbid: number,
+): Promise<void> {
+  const placedAt = new Date(swapAt.getTime() - 7 * 60 * 60 * 1000);
+  const worst = intent.worst;
 
   await prisma.$transaction(async (tx) => {
-    // Sell the worst at 01:00 — book price at the time of sale.
     await tx.squadEntry.update({
       where: { id: worst.entryId },
       data: {
         untilAt: swapAt,
         playing: false,
         formationSlot: null,
-        sellPrice: worstSellPrice,
+        sellPrice: worst.sellPrice,
       },
     });
-
-    // Winning bid record.
     await tx.bid.create({
       data: {
-        managerId,
-        playerId: chosen.player.id,
-        amount: bidAmount,
+        managerId: intent.managerId,
+        playerId: target.player.id,
+        amount: target.bidAmount,
         placedAt,
         resolved: true,
         won: true,
       },
     });
-
-    // New squad entry starts at 01:00 in the worst's old slot.
     await tx.squadEntry.create({
       data: {
-        managerId,
-        playerId: chosen.player.id,
-        bid: bidAmount,
+        managerId: intent.managerId,
+        playerId: target.player.id,
+        bid: target.bidAmount,
         fromAt: swapAt,
         untilAt: FOREVER,
         playing: true,
         formationSlot: worst.slot,
       },
     });
-
-    // Paper-talk pair.
     const oldPlayer = await tx.player.findUnique({
       where: { id: worst.playerId },
       include: { team: true },
     });
     const newPlayer = await tx.player.findUnique({
-      where: { id: chosen.player.id },
+      where: { id: target.player.id },
       include: { team: true },
     });
     await tx.paperTalk.create({
       data: {
         when: swapAt,
-        managerId,
+        managerId: intent.managerId,
         teamName: oldPlayer?.team.name ?? null,
         playerName: oldPlayer?.webName ?? worst.webName,
         reason: worst.lastGwPts === 0 ? "Sold (likely injured)" : "Sold",
-        bid: worstSellPrice, // what was received at sale, not the original buy bid
+        bid: worst.sellPrice,
       },
     });
     await tx.paperTalk.create({
       data: {
         when: swapAt,
-        managerId,
+        managerId: intent.managerId,
         teamName: newPlayer?.team.name ?? null,
-        playerName: newPlayer?.webName ?? chosen.player.webName,
-        reason: "Signed",
-        bid: bidAmount,
+        playerName: newPlayer?.webName ?? target.player.webName,
+        reason: outbid > 0 ? `Signed (outbid ${outbid} rival${outbid === 1 ? "" : "s"})` : "Signed",
+        bid: target.bidAmount,
       },
     });
   });
 
   const tag = worst.lastGwPts === 0 ? "INJ" : "POOR";
-  const auctionTag = auctionBoost > 0 ? " [auction]" : "";
+  const auctionTag = target.auctionBoost > 0 ? " [auction]" : "";
+  const contestTag = outbid > 0 ? ` [beat ${outbid}]` : "";
   log(
-    `    ${tag}: ${worst.webName} (last ${worst.lastGwPts}, cum ${worst.pointsToDate}, £${worst.bid.toFixed(1)}m) → ${chosen.player.webName} (recent ${chosen.recent}, cum ${chosen.cumulative}, bid £${bidAmount.toFixed(1)}m)${auctionTag}`,
+    `    ${tag}: ${worst.webName} (last ${worst.lastGwPts}, cum ${worst.pointsToDate}, £${worst.bid.toFixed(1)}m) → ${target.player.webName} (recent ${target.recent}, cum ${target.cumulative}, bid £${target.bidAmount.toFixed(1)}m)${auctionTag}${contestTag}`,
   );
-  return true;
+}
+
+// Record a losing bid: stamp it as resolved-but-lost and add an Outbid
+// paper-talk so the bidder's history reflects the contested attempt.
+async function recordLosingBid(
+  intent: SwapIntent,
+  target: SwapTarget,
+  swapAt: Date,
+  winnerTeam: string,
+): Promise<void> {
+  const placedAt = new Date(swapAt.getTime() - 7 * 60 * 60 * 1000);
+  await prisma.bid.create({
+    data: {
+      managerId: intent.managerId,
+      playerId: target.player.id,
+      amount: target.bidAmount,
+      placedAt,
+      resolved: true,
+      won: false,
+    },
+  });
+  const player = await prisma.player.findUnique({
+    where: { id: target.player.id },
+    include: { team: true },
+  });
+  await prisma.paperTalk.create({
+    data: {
+      when: swapAt,
+      managerId: intent.managerId,
+      teamName: player?.team.name ?? null,
+      playerName: player?.webName ?? target.player.webName,
+      reason: `Outbid by ${winnerTeam}`,
+      bid: target.bidAmount,
+    },
+  });
 }
 
 async function gwKickoffDates(): Promise<Map<number, Date>> {
@@ -618,13 +766,17 @@ async function simulateSeason(managerIds: number[], log: Log): Promise<number> {
 
   const rand = rng(2026);
   let totalSwaps = 0;
-  // Every manager attempts a same-position upgrade every gameweek.
-  const SWAPS_PER_WEEK = managerIds.length;
+  let totalContestedAuctions = 0;
+  let totalOutbids = 0;
 
-  // For each gameweek from 2 to 38, 4 managers (round-robin) each attempt a
-  // single same-position upgrade. The swap resolves at 01:00 on the day before
-  // the GW kicks off.
-  let rotation = 0;
+  // Cache manager team names so log lines are readable.
+  const teamByManager = new Map<number, string>();
+  const managers = await prisma.manager.findMany({
+    where: { id: { in: managerIds } },
+    select: { id: true, teamName: true },
+  });
+  for (const m of managers) teamByManager.set(m.id, m.teamName);
+
   for (let gw = 2; gw <= 38; gw++) {
     const kickoff = kickoffs.get(gw);
     if (!kickoff) continue;
@@ -633,20 +785,95 @@ async function simulateSeason(managerIds: number[], log: Log): Promise<number> {
     day.setUTCDate(day.getUTCDate() - 1);
     if (day < SEASON_START || day > SEASON_END) continue;
 
-    const weekManagerIds: number[] = [];
-    for (let s = 0; s < SWAPS_PER_WEEK; s++) {
-      weekManagerIds.push(managerIds[rotation % managerIds.length]!);
-      rotation++;
+    // Phase 1: every manager prepares a swap intent (worst + top 5 ranked
+    // targets with their max bids). Process the prepare in random order so
+    // the "claimed" pool snapshot is the same for everyone (we pass it in
+    // explicitly, captured once before any apply happens).
+    const claimedRows = await prisma.squadEntry.findMany({
+      where: { untilAt: FOREVER },
+      select: { playerId: true },
+    });
+    const initiallyClaimed = new Set(claimedRows.map((c) => c.playerId));
+
+    const intents: SwapIntent[] = [];
+    for (const mid of managerIds) {
+      const team = teamByManager.get(mid) ?? "?";
+      // Players claimed by OTHERS — we exclude them as targets. Each
+      // manager's own players are valid candidates only if we're selling
+      // them (worst), which prepareSwapIntent handles.
+      const ownerEntries = await prisma.squadEntry.findMany({
+        where: { managerId: { not: mid }, untilAt: FOREVER },
+        select: { playerId: true },
+      });
+      const ownedByOthers = new Set(ownerEntries.map((e) => e.playerId));
+      const intent = await prepareSwapIntent(mid, team, pool, day, gw - 1, rand, ownedByOthers);
+      if (intent && intent.targets.length > 0) intents.push(intent);
     }
+
+    if (intents.length === 0) continue;
+
+    // Phase 2: resolve auctions in up to 3 rounds. Each round, every
+    // remaining intent nominates their next-best target that hasn't been
+    // won yet this gameweek. Collisions → highest bid wins; losers retry
+    // the next round with their next preference.
+    const wonThisGw = new Set<number>(initiallyClaimed);
+    let remaining = intents;
+    let round = 0;
+    let gwSwaps = 0;
+    let gwContested = 0;
+    let gwOutbids = 0;
+    while (remaining.length > 0 && round < 3) {
+      round++;
+      // Map each intent to its highest-priority unowned target this round.
+      const nominations: Array<{ intent: SwapIntent; target: SwapTarget }> = [];
+      const noChoice: SwapIntent[] = [];
+      for (const intent of remaining) {
+        const target = intent.targets.find((t) => !wonThisGw.has(t.player.id));
+        if (target) nominations.push({ intent, target });
+        else noChoice.push(intent);
+      }
+
+      // Group nominations by target playerId.
+      const byTarget = new Map<number, Array<{ intent: SwapIntent; target: SwapTarget }>>();
+      for (const nom of nominations) {
+        const list = byTarget.get(nom.target.player.id) ?? [];
+        list.push(nom);
+        byTarget.set(nom.target.player.id, list);
+      }
+
+      const nextLosers: SwapIntent[] = [];
+      for (const [playerId, contestants] of byTarget) {
+        contestants.sort((a, b) => b.target.bidAmount - a.target.bidAmount);
+        const winner = contestants[0]!;
+        const losers = contestants.slice(1);
+        await applySwap(winner.intent, winner.target, day, log, losers.length);
+        wonThisGw.add(playerId);
+        gwSwaps++;
+        if (losers.length > 0) {
+          gwContested++;
+          gwOutbids += losers.length;
+          for (const l of losers) {
+            await recordLosingBid(l.intent, l.target, day, winner.intent.managerTeam);
+            nextLosers.push(l.intent);
+          }
+        }
+      }
+
+      remaining = nextLosers;
+      // noChoice (intents with no remaining unwon targets) drop silently.
+    }
+
+    totalSwaps += gwSwaps;
+    totalContestedAuctions += gwContested;
+    totalOutbids += gwOutbids;
     log(
-      `GW${gw} (${day.toISOString().slice(0, 10)} 01:00) — ${SWAPS_PER_WEEK} swaps: managers ${weekManagerIds.join(", ")}`,
+      `GW${gw} (${day.toISOString().slice(0, 10)} 01:00): ${gwSwaps} swaps · ${gwContested} contested auctions · ${gwOutbids} outbids`,
     );
-    for (const mid of weekManagerIds) {
-      const ok = await attemptWeeklySwap(mid, pool, day, gw - 1, rand, log);
-      if (ok) totalSwaps++;
-    }
   }
 
+  log(
+    `Season totals: ${totalSwaps} swaps, ${totalContestedAuctions} contested auctions, ${totalOutbids} outbids.`,
+  );
   return totalSwaps;
 }
 
@@ -662,10 +889,12 @@ async function verifyIntegrity(log: Log): Promise<void> {
     const playing = entries.filter((e) => e.playing).length;
     const benched = entries.filter((e) => !e.playing).length;
     const slots = new Set(entries.filter((e) => e.playing).map((e) => e.formationSlot));
+    const expectedBench = entries.length - 11;
     const ok =
-      entries.length === SQUAD_SIZE &&
+      entries.length >= SQUAD_MIN &&
+      entries.length <= SQUAD_TARGET &&
       playing === 11 &&
-      benched === SQUAD_SIZE - 11 &&
+      benched === expectedBench &&
       slots.size === 11 &&
       !slots.has(null);
     if (!ok) {
@@ -676,7 +905,7 @@ async function verifyIntegrity(log: Log): Promise<void> {
     }
   }
   if (failures === 0) {
-    log(`  ✓ all ${managers.length} managers have ${SQUAD_SIZE} players (11 in XI, ${SQUAD_SIZE - 11} bench, slots 0..10).`);
+    log(`  ✓ all ${managers.length} managers have ${SQUAD_MIN}..${SQUAD_TARGET} players (11 in XI, remainder bench, slots 0..10).`);
   }
 
   // Budget invariant: BUDGET − active_spent − realised_losses ≥ 0 for every

@@ -470,8 +470,14 @@ export default function Admin() {
                 </tr>
               </thead>
               <tbody>
-                {transfersSorted.sorted.map((t) => (
-                  <tr key={t.id} className="border-t border-slate-100">
+                {transfersSorted.sorted.map((t) => {
+                  const isLoss =
+                    t.sellPrice != null && t.sellPrice < t.bidPrice - 1e-9;
+                  return (
+                  <tr
+                    key={t.id}
+                    className={`border-t border-slate-100 ${isLoss ? "bg-red-50" : ""}`}
+                  >
                     <td className="p-1">{t.managerTeam}</td>
                     <td className="p-1 font-medium">{t.playerName}</td>
                     <td className="p-1">{t.playerTeamShort}</td>
@@ -498,7 +504,8 @@ export default function Admin() {
                       </span>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -540,7 +547,10 @@ export default function Admin() {
               </thead>
               <tbody>
                 {bidLogSorted.sorted.map((b) => (
-                  <tr key={b.id} className="border-t border-slate-100">
+                  <tr
+                    key={b.id}
+                    className={`border-t border-slate-100 ${b.status === "lost" ? "bg-red-50" : ""}`}
+                  >
                     <td className="p-1">{b.managerTeam}</td>
                     <td className="p-1 font-medium">{b.playerName}</td>
                     <td className="p-1">{b.playerTeamShort}</td>

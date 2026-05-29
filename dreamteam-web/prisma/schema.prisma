@@ -19,6 +19,7 @@ model Manager {
   squad        SquadEntry[]
   bids         Bid[]
   paperTalks   PaperTalk[]
+  pendingChanges PendingChange[]
 }
 
 model Team {
@@ -110,6 +111,23 @@ model Audit {
   who  String
   what String
   when DateTime @default(now())
+}
+
+// Team-selection changes queued by the manager but not yet effective.
+// They commit at `effectiveAt` (start of the next gameweek / 01:00 UTC)
+// unless cancelled.
+model PendingChange {
+  id          Int      @id @default(autoincrement())
+  managerId   Int
+  manager     Manager  @relation(fields: [managerId], references: [id])
+  kind        String   // "PLAY" — bring on, "BENCH" — take off
+  playerId    Int
+  toSlot      Int?     // formation slot 0..10 (PLAY only)
+  effectiveAt DateTime
+  createdAt   DateTime @default(now())
+
+  @@index([managerId])
+  @@index([effectiveAt])
 }
 
 model SyncState {

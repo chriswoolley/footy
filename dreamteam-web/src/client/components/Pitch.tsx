@@ -19,13 +19,19 @@ type Props = {
   entries: SquadEntryDTO[];
   onDropOnSlot: (playerId: number, slot: number) => void;
   onBench: (playerId: number) => void;
+  /** Players with a pending change — cards become non-draggable and visibly locked. */
+  lockedPlayerIds?: Set<number>;
+  /** Slots being targeted by a pending PLAY — drops disabled. */
+  lockedSlots?: Set<number>;
 };
 
 // Six alternating stripes give the pitch the classic mown-grass feel from the
 // FPL Pitch View; lighter top, darker bottom for a subtle depth cue.
 const STRIPE_COLORS = ["#2b8a4b", "#247a40", "#2b8a4b", "#247a40", "#2b8a4b", "#247a40"];
 
-export function Pitch({ formation, entries, onDropOnSlot, onBench }: Props) {
+export function Pitch({ formation, entries, onDropOnSlot, onBench, lockedPlayerIds, lockedSlots }: Props) {
+  const locked = lockedPlayerIds ?? new Set<number>();
+  const lockedSlot = lockedSlots ?? new Set<number>();
   const { rows, slotPositions } = LAYOUTS[formation];
   const slotEntry = (slot: number) =>
     entries.find((e) => e.playing && e.formationSlot === slot) ?? null;
@@ -156,9 +162,11 @@ export function Pitch({ formation, entries, onDropOnSlot, onBench }: Props) {
                 <div
                   key={slot}
                   onDragOver={(e) => {
+                    if (lockedSlot.has(slot)) return;
                     e.preventDefault();
                   }}
                   onDrop={(e) => {
+                    if (lockedSlot.has(slot)) return;
                     e.preventDefault();
                     const playerId = Number(e.dataTransfer.getData("text/plain"));
                     if (!Number.isNaN(playerId)) onDropOnSlot(playerId, slot);
@@ -169,13 +177,28 @@ export function Pitch({ formation, entries, onDropOnSlot, onBench }: Props) {
                   {entry ? (
                     <PlayerHistoryPopup playerId={entry.playerId}>
                       <button
-                        draggable
-                        onDragStart={(e) =>
-                          e.dataTransfer.setData("text/plain", String(entry.playerId))
+                        draggable={!locked.has(entry.playerId)}
+                        onDragStart={(e) => {
+                          if (locked.has(entry.playerId)) {
+                            e.preventDefault();
+                            return;
+                          }
+                          e.dataTransfer.setData("text/plain", String(entry.playerId));
+                        }}
+                        onDoubleClick={() => {
+                          if (locked.has(entry.playerId)) return;
+                          onBench(entry.playerId);
+                        }}
+                        title={
+                          locked.has(entry.playerId)
+                            ? `${entry.name} — pending change, cancel it to move again`
+                            : `${entry.name} (${entry.teamShort}) — double-click to bench`
                         }
-                        onDoubleClick={() => onBench(entry.playerId)}
-                        title={`${entry.name} (${entry.teamShort}) — double-click to bench`}
-                        className="w-12 h-12 rounded-full bg-white overflow-hidden shadow-md ring-1 ring-white/80 group-hover:scale-110 transition-transform"
+                        className={`relative w-12 h-12 rounded-full bg-white overflow-hidden shadow-md ring-1 ring-white/80 transition-transform ${
+                          locked.has(entry.playerId)
+                            ? "opacity-50 cursor-not-allowed"
+                            : "group-hover:scale-110"
+                        }`}
                       >
                         {entry.photoUrl ? (
                           <img
@@ -197,6 +220,14 @@ export function Pitch({ formation, entries, onDropOnSlot, onBench }: Props) {
                         >
                           {entry.teamShort}
                         </span>
+                        {locked.has(entry.playerId) && (
+                          <span
+                            className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-amber-500 text-white text-[10px] font-bold flex items-center justify-center shadow"
+                            title="Pending change — cancel it in the Pending Changes panel"
+                          >
+                            ⏳
+                          </span>
+                        )}
                       </button>
                       {/* Name plate — FPL-style dark badge */}
                       <div className="mt-1 max-w-[68px] w-[68px] truncate text-center text-[10px] font-semibold text-white bg-emerald-950 rounded px-1 py-[1px] shadow">

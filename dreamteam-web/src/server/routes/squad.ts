@@ -9,7 +9,68 @@ const BUDGET = Number(process.env.BUDGET ?? 75);
 
 router.use(requireAuth);
 
+// Team-selection changes (play / bench) don't apply immediately — they
+// queue up in PendingChange and commit at the next 01:00 UTC, matching the
+// daily bid resolution deadline. The user sees them in a pending list on
+// the Squad page and can cancel before the cutoff.
+function nextDeadline(now: Date): Date {
+  const next = new Date(now);
+  next.setUTCHours(1, 0, 0, 0);
+  if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
+  return next;
+}
+
+// Apply any pending changes whose effectiveAt has passed for this manager.
+// Called on every /api/squad fetch so the user's view is always up-to-date.
+async function applyDuePending(managerId: number): Promise<number> {
+  const now = new Date();
+  const due = await prisma.pendingChange.findMany({
+    where: { managerId, effectiveAt: { lte: now } },
+    orderBy: { effectiveAt: "asc" },
+  });
+  if (due.length === 0) return 0;
+  for (const c of due) {
+    if (c.kind === "PLAY" && c.toSlot != null) {
+      // Validate the slot for the manager's current formation.
+      const manager = await prisma.manager.findUnique({ where: { id: managerId } });
+      if (!manager) continue;
+      const layout = manager.formation === "433" ? [1, 4, 3, 3] : [1, 4, 4, 2];
+      const slotPositions: number[] = [];
+      layout.forEach((count, posIdx) => {
+        for (let i = 0; i < count; i++) slotPositions.push(posIdx + 1);
+      });
+      const requiredPos = slotPositions[c.toSlot];
+      const entry = await prisma.squadEntry.findFirst({
+        where: { managerId, playerId: c.playerId, untilAt: FOREVER },
+        include: { player: true },
+      });
+      if (!entry || entry.player.position !== requiredPos) {
+        // Squad changed since we queued — silently drop.
+        await prisma.pendingChange.delete({ where: { id: c.id } });
+        continue;
+      }
+      await prisma.squadEntry.updateMany({
+        where: { managerId, formationSlot: c.toSlot, untilAt: FOREVER },
+        data: { playing: false, formationSlot: null },
+      });
+      await prisma.squadEntry.update({
+        where: { id: entry.id },
+        data: { playing: true, formationSlot: c.toSlot },
+      });
+    } else if (c.kind === "BENCH") {
+      await prisma.squadEntry.updateMany({
+        where: { managerId, playerId: c.playerId, untilAt: FOREVER },
+        data: { playing: false, formationSlot: null },
+      });
+    }
+    await prisma.pendingChange.delete({ where: { id: c.id } });
+  }
+  return due.length;
+}
+
 router.get("/", async (req: AuthedRequest, res) => {
+  // Apply any due pending changes before the manager sees their squad.
+  await applyDuePending(req.managerId!);
   const [entries, soldEntries, bidMode] = await Promise.all([
     prisma.squadEntry.findMany({
       where: { managerId: req.managerId, untilAt: FOREVER },
@@ -57,15 +118,44 @@ router.post("/formation", async (req: AuthedRequest, res) => {
   if (formation !== "442" && formation !== "433") {
     return res.status(400).json({ error: "formation must be 442 or 433" });
   }
+  const manager = await prisma.manager.findUnique({ where: { id: req.managerId } });
+  if (!manager) return res.status(404).json({ error: "manager" });
+
+  // No-op if the formation hasn't changed — clicking the already-active
+  // button shouldn't dump the entire starting XI to the bench.
+  if (manager.formation === formation) {
+    return res.json({ ok: true, unchanged: true });
+  }
+
+  // Compute the new slot → required-position map.
+  const layout = formation === "433" ? [1, 4, 3, 3] : [1, 4, 4, 2];
+  const newSlotPos: number[] = [];
+  layout.forEach((count, posIdx) => {
+    for (let i = 0; i < count; i++) newSlotPos.push(posIdx + 1);
+  });
+
   await prisma.manager.update({
     where: { id: req.managerId },
     data: { formation },
   });
-  // Reset playing/slots if formation changes — invalid slots will be empty
-  await prisma.squadEntry.updateMany({
-    where: { managerId: req.managerId, untilAt: FOREVER },
-    data: { playing: false, formationSlot: null },
+
+  // Keep any current starter whose slot's required position still matches
+  // their actual position under the new formation; bench the rest. (442↔433
+  // shifts MID/FWD counts so usually 1 player needs replacing.)
+  const starters = await prisma.squadEntry.findMany({
+    where: { managerId: req.managerId, untilAt: FOREVER, playing: true },
+    include: { player: { select: { position: true } } },
   });
+  for (const s of starters) {
+    if (s.formationSlot == null) continue;
+    const required = newSlotPos[s.formationSlot];
+    if (required !== s.player.position) {
+      await prisma.squadEntry.update({
+        where: { id: s.id },
+        data: { playing: false, formationSlot: null },
+      });
+    }
+  }
   res.json({ ok: true });
 });
 
@@ -74,7 +164,6 @@ router.post("/play", async (req: AuthedRequest, res) => {
   if (typeof playerId !== "number" || typeof slot !== "number") {
     return res.status(400).json({ error: "playerId and slot required" });
   }
-  // Validate slot fits formation and position
   const manager = await prisma.manager.findUnique({ where: { id: req.managerId } });
   if (!manager) return res.status(404).json({ error: "manager" });
 
@@ -97,26 +186,125 @@ router.post("/play", async (req: AuthedRequest, res) => {
     return res.status(400).json({ error: "wrong position for this slot" });
   }
 
-  // Free anyone else currently in that slot
-  await prisma.squadEntry.updateMany({
-    where: { managerId: req.managerId, formationSlot: slot, untilAt: FOREVER },
-    data: { playing: false, formationSlot: null },
+  // Replace any existing pending PLAY for this player so the latest intent wins.
+  await prisma.pendingChange.deleteMany({
+    where: { managerId: req.managerId, playerId, kind: { in: ["PLAY", "BENCH"] } },
   });
-  // Free this player from any other slot
-  await prisma.squadEntry.update({
-    where: { id: entry.id },
-    data: { playing: true, formationSlot: slot },
+  const effectiveAt = nextDeadline(new Date());
+  const change = await prisma.pendingChange.create({
+    data: {
+      managerId: req.managerId!,
+      kind: "PLAY",
+      playerId,
+      toSlot: slot,
+      effectiveAt,
+    },
   });
-  res.json({ ok: true });
+  res.json({ ok: true, pending: change });
 });
 
 router.post("/bench", async (req: AuthedRequest, res) => {
   const { playerId } = req.body ?? {};
   if (typeof playerId !== "number") return res.status(400).json({ error: "playerId required" });
-  await prisma.squadEntry.updateMany({
-    where: { managerId: req.managerId, playerId, untilAt: FOREVER },
-    data: { playing: false, formationSlot: null },
+  // Replace any existing pending change for this player.
+  await prisma.pendingChange.deleteMany({
+    where: { managerId: req.managerId, playerId, kind: { in: ["PLAY", "BENCH"] } },
   });
+  const effectiveAt = nextDeadline(new Date());
+  const change = await prisma.pendingChange.create({
+    data: {
+      managerId: req.managerId!,
+      kind: "BENCH",
+      playerId,
+      effectiveAt,
+    },
+  });
+  res.json({ ok: true, pending: change });
+});
+
+router.get("/pending", async (req: AuthedRequest, res) => {
+  const rows = await prisma.pendingChange.findMany({
+    where: { managerId: req.managerId },
+    orderBy: { createdAt: "asc" },
+  });
+  if (rows.length === 0) return res.json([]);
+
+  // Resolve the incoming player metadata for every change.
+  const playerIds = new Set(rows.map((r) => r.playerId));
+  // For PLAY changes we also need to look up whoever currently occupies the
+  // target slot (i.e. who's being knocked off the XI).
+  const playSlots = new Set<number>();
+  for (const r of rows) {
+    if (r.kind === "PLAY" && r.toSlot != null) playSlots.add(r.toSlot);
+  }
+  const slotOccupants = await prisma.squadEntry.findMany({
+    where: {
+      managerId: req.managerId,
+      untilAt: FOREVER,
+      playing: true,
+      formationSlot: { in: Array.from(playSlots) },
+    },
+    select: { playerId: true, formationSlot: true },
+  });
+  for (const o of slotOccupants) playerIds.add(o.playerId);
+
+  const players = await prisma.player.findMany({
+    where: { id: { in: Array.from(playerIds) } },
+    include: { team: true },
+  });
+  const byId = new Map(players.map((p) => [p.id, p]));
+  const occupantBySlot = new Map(slotOccupants.map((o) => [o.formationSlot, o.playerId]));
+
+  function photo(playerId: number): string | null {
+    const p = byId.get(playerId);
+    return p?.photoCode
+      ? `https://resources.premierleague.com/premierleague/photos/players/110x140/p${p.photoCode}.png`
+      : null;
+  }
+
+  res.json(
+    rows.map((r) => {
+      const incoming = byId.get(r.playerId);
+      const outgoingId =
+        r.kind === "PLAY" && r.toSlot != null ? occupantBySlot.get(r.toSlot) : r.playerId;
+      const outgoing = outgoingId != null ? byId.get(outgoingId) : null;
+      return {
+        id: r.id,
+        kind: r.kind,
+        toSlot: r.toSlot,
+        effectiveAt: r.effectiveAt.toISOString(),
+        createdAt: r.createdAt.toISOString(),
+        incoming:
+          r.kind === "PLAY"
+            ? {
+                playerId: r.playerId,
+                name: incoming?.webName ?? "?",
+                teamShort: incoming?.team.shortName ?? "?",
+                position: incoming?.position ?? 0,
+                photoUrl: photo(r.playerId),
+              }
+            : null,
+        outgoing: outgoing
+          ? {
+              playerId: outgoing.id,
+              name: outgoing.webName,
+              teamShort: outgoing.team.shortName,
+              position: outgoing.position,
+              photoUrl: photo(outgoing.id),
+            }
+          : null,
+      };
+    }),
+  );
+});
+
+router.delete("/pending/:id", async (req: AuthedRequest, res) => {
+  const id = Number(req.params.id);
+  const row = await prisma.pendingChange.findUnique({ where: { id } });
+  if (!row || row.managerId !== req.managerId) {
+    return res.status(404).json({ error: "not found" });
+  }
+  await prisma.pendingChange.delete({ where: { id } });
   res.json({ ok: true });
 });
 

@@ -123,10 +123,12 @@ export function SquadActivity() {
             </tr>
           </thead>
           <tbody>
-            {sorted.map((r, i) => (
+            {sorted.map((r, i) => {
+              const isLoss = r.kind === "sold" && (r.delta ?? 0) < 0;
+              return (
               <tr
                 key={`${r.kind}-${r.playerId}-${r.when}-${i}`}
-                className="border-t border-slate-100 hover:bg-slate-50"
+                className={`border-t border-slate-100 ${isLoss ? "bg-red-50 hover:bg-red-100" : "hover:bg-slate-50"}`}
               >
                 <td className="p-2 text-xs text-slate-500 whitespace-nowrap tabular-nums">
                   {new Date(r.when).toLocaleString()}
@@ -168,7 +170,8 @@ export function SquadActivity() {
                   )}
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>

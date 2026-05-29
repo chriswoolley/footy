@@ -4,13 +4,16 @@ import { PlayerHistoryPopup } from "./PlayerHistoryPopup";
 type Props = {
   bench: SquadEntryDTO[];
   onBench: (playerId: number) => void;
+  /** Players whose change is pending — drag is disabled, card is dimmed. */
+  lockedPlayerIds?: Set<number>;
 };
 
 const POSITION_NAME = { 1: "GK", 2: "DEF", 3: "MID", 4: "FWD" } as const;
 
 // Vertical bench panel: shows every owned-but-not-playing player. Drag a card
 // onto a pitch slot to sub them on; drag a pitch player here to bench them.
-export function Dugout({ bench, onBench }: Props) {
+export function Dugout({ bench, onBench, lockedPlayerIds }: Props) {
+  const locked = lockedPlayerIds ?? new Set<number>();
   return (
     <div className="h-full" style={{ perspective: "900px" }}>
     <div
@@ -56,13 +59,29 @@ export function Dugout({ bench, onBench }: Props) {
             no one on the bench
           </div>
         ) : (
-          bench.map((e) => (
+          bench.map((e) => {
+            const isLocked = locked.has(e.playerId);
+            return (
             <PlayerHistoryPopup key={e.id} playerId={e.playerId}>
             <div
-              draggable
-              onDragStart={(ev) => ev.dataTransfer.setData("text/plain", String(e.playerId))}
-              title={`${e.name} (${POSITION_NAME[e.position]}, ${e.teamShort}) — drag onto a pitch slot to bring on`}
-              className="flex flex-col items-center bg-amber-50/95 rounded shadow-sm cursor-grab active:cursor-grabbing hover:scale-105 transition-transform select-none"
+              draggable={!isLocked}
+              onDragStart={(ev) => {
+                if (isLocked) {
+                  ev.preventDefault();
+                  return;
+                }
+                ev.dataTransfer.setData("text/plain", String(e.playerId));
+              }}
+              title={
+                isLocked
+                  ? `${e.name} — pending change, cancel it to move again`
+                  : `${e.name} (${POSITION_NAME[e.position]}, ${e.teamShort}) — drag onto a pitch slot to bring on`
+              }
+              className={`relative flex flex-col items-center bg-amber-50/95 rounded shadow-sm select-none transition-transform ${
+                isLocked
+                  ? "opacity-50 cursor-not-allowed"
+                  : "cursor-grab active:cursor-grabbing hover:scale-105"
+              }`}
               style={{ transform: "rotateX(-30deg)", transformOrigin: "center bottom" }}
             >
               <div className="w-10 h-10 rounded-full bg-white overflow-hidden border border-amber-900/30 mt-1 shadow-sm">
@@ -85,6 +104,14 @@ export function Dugout({ bench, onBench }: Props) {
                 >
                   {e.teamShort}
                 </span>
+                {isLocked && (
+                  <span
+                    className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-amber-500 text-white text-[10px] font-bold flex items-center justify-center shadow"
+                    title="Pending change — cancel it in the Pending Changes panel"
+                  >
+                    ⏳
+                  </span>
+                )}
               </div>
               <div className="text-[9px] font-semibold leading-tight text-emerald-950 truncate w-full text-center px-1">
                 {e.name}
@@ -102,7 +129,8 @@ export function Dugout({ bench, onBench }: Props) {
               </div>
             </div>
             </PlayerHistoryPopup>
-          ))
+            );
+          })
         )}
       </div>
     </div>
