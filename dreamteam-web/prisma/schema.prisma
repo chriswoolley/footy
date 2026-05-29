@@ -1,0 +1,119 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Manager {
+  id           Int          @id @default(autoincrement())
+  username     String       @unique
+  passwordHash String
+  teamName     String
+  email        String?
+  formation    String       @default("442") // "442" or "433"
+  createdAt    DateTime     @default(now())
+
+  squad        SquadEntry[]
+  bids         Bid[]
+  paperTalks   PaperTalk[]
+}
+
+model Team {
+  id        Int      @id // matches FPL teams[].id
+  name      String
+  shortName String
+  players   Player[]
+}
+
+model Player {
+  id          Int             @id // matches FPL elements[].id
+  webName     String
+  firstName   String
+  lastName    String
+  teamId      Int
+  team        Team            @relation(fields: [teamId], references: [id])
+  position    Int             // 1=GK, 2=DEF, 3=MID, 4=FWD
+  nowCost     Int             // £ × 10
+  totalPoints Int             @default(0)
+  status      String          @default("a")
+  news        String          @default("")
+  form        Float           @default(0)
+  photoCode   Int?            // FPL photo code: p{code}.png on premierleague.com
+
+  squad       SquadEntry[]
+  bids        Bid[]
+  points      PointSnapshot[]
+
+  @@index([teamId])
+  @@index([position])
+}
+
+model PointSnapshot {
+  id          Int      @id @default(autoincrement())
+  playerId    Int
+  player      Player   @relation(fields: [playerId], references: [id])
+  gameweek    Int
+  points      Int      // points earned this gameweek
+  value       Int      // £ × 10 at the time
+  kickoffTime DateTime?
+  recordedAt  DateTime @default(now())
+
+  @@unique([playerId, gameweek])
+  @@index([gameweek])
+}
+
+model SquadEntry {
+  id            Int       @id @default(autoincrement())
+  managerId     Int
+  manager       Manager   @relation(fields: [managerId], references: [id])
+  playerId      Int
+  player        Player    @relation(fields: [playerId], references: [id])
+  fromAt        DateTime  @default(now())
+  untilAt       DateTime  // sentinel: 9999-12-31 for "still owned"
+  bid           Float     // £m paid in at buy
+  sellPrice     Float?    // £m received at sell (book price at the time); null while still owned
+  playing       Boolean   @default(false)
+  formationSlot Int?      // 0..10 slot on the pitch when playing
+
+  @@index([managerId])
+  @@index([playerId])
+}
+
+model Bid {
+  id        Int      @id @default(autoincrement())
+  managerId Int
+  manager   Manager  @relation(fields: [managerId], references: [id])
+  playerId  Int
+  player    Player   @relation(fields: [playerId], references: [id])
+  amount    Float    // £m
+  placedAt  DateTime @default(now())
+  resolved  Boolean  @default(false)
+  won       Boolean  @default(false)
+}
+
+model PaperTalk {
+  id        Int      @id @default(autoincrement())
+  when      DateTime @default(now())
+  managerId Int?
+  manager   Manager? @relation(fields: [managerId], references: [id])
+  teamName  String?
+  playerName String?
+  reason    String
+  bid       Float?
+}
+
+model Audit {
+  id   Int      @id @default(autoincrement())
+  who  String
+  what String
+  when DateTime @default(now())
+}
+
+model SyncState {
+  key   String @id // "bootstrap", "live:30", etc.
+  value String
+  when  DateTime @updatedAt
+}

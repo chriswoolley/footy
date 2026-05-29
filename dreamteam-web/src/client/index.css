@@ -1,0 +1,139 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+}
+
+/* Ticker marquee — translates the duplicated track by -50% so the loop
+ * cycle hits exactly the end of the first copy as the second copy starts. */
+@keyframes ticker-scroll {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+.ticker-track {
+  display: flex;
+  gap: 2rem;
+  animation: ticker-scroll 15s linear infinite;
+  white-space: nowrap;
+}
+.ticker-track:hover {
+  animation-play-state: paused;
+}
+
+/* ---- LabLogic-style hero carousel ----
+ * Crossfades the four lablogic.com hero images, with the same navy
+ * 60%→80% gradient overlay the source site uses (linear-gradient
+ * rgba(6,33,62,.8) → rgba(6,33,62,.6)). Each slide layer fades in for its
+ * window and out again, so the page is always under one slide and 0–2 in
+ * transition. */
+@keyframes brand-bg-slide-0 {
+  0%, 22%   { opacity: 1; }
+  25%, 97%  { opacity: 0; }
+  100%      { opacity: 1; }
+}
+@keyframes brand-bg-slide-1 {
+  0%, 22%   { opacity: 0; }
+  25%, 47%  { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+@keyframes brand-bg-slide-2 {
+  0%, 47%   { opacity: 0; }
+  50%, 72%  { opacity: 1; }
+  75%, 100% { opacity: 0; }
+}
+@keyframes brand-bg-slide-3 {
+  0%, 72%   { opacity: 0; }
+  75%, 97%  { opacity: 1; }
+  100%      { opacity: 0; }
+}
+
+.brand-bg {
+  position: relative;
+  background-color: #06213e;
+  isolation: isolate;
+  overflow: hidden;
+}
+.brand-bg > .brand-bg-slide {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  z-index: 0;
+  pointer-events: none;
+  /* Total cycle: 32s (≈ 8s per slide) so each transition is gentle */
+  animation-duration: 32s;
+  animation-iteration-count: infinite;
+  animation-timing-function: ease-in-out;
+}
+.brand-bg > .brand-bg-slide.s0 {
+  background-image: url("/brand-bg/bg1.jpg");
+  animation-name: brand-bg-slide-0;
+}
+.brand-bg > .brand-bg-slide.s1 {
+  background-image: url("/brand-bg/bg2.jpg");
+  animation-name: brand-bg-slide-1;
+}
+.brand-bg > .brand-bg-slide.s2 {
+  background-image: url("/brand-bg/bg3.jpg");
+  animation-name: brand-bg-slide-2;
+}
+.brand-bg > .brand-bg-slide.s3 {
+  background-image: url("/brand-bg/bg4.jpg");
+  animation-name: brand-bg-slide-3;
+}
+.brand-bg > .brand-bg-overlay {
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(
+    to top,
+    rgba(6, 33, 62, 0.85),
+    rgba(6, 33, 62, 0.65)
+  );
+  z-index: 1;
+  pointer-events: none;
+}
+.brand-bg > .brand-bg-content,
+.brand-bg > *:not(.brand-bg-slide):not(.brand-bg-overlay):not(.brand-swoosh) {
+  position: relative;
+  z-index: 2;
+}
+
+/* Subtle cyan accent stripe that drifts across the header — mimics the
+ * lablogic hero's diagonal cyan brand swoosh. */
+@keyframes brand-swoosh {
+  0% {
+    transform: translateX(-30%) skewX(-12deg);
+  }
+  100% {
+    transform: translateX(130%) skewX(-12deg);
+  }
+}
+.brand-swoosh {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+.brand-swoosh::before {
+  content: "";
+  position: absolute;
+  top: -30%;
+  left: 0;
+  width: 25%;
+  height: 160%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(30, 173, 222, 0.18),
+    transparent
+  );
+  animation: brand-swoosh 12s linear infinite;
+}
