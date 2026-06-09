@@ -9,8 +9,9 @@
     "dev:client": "vite",
     "build:client": "vite build",
     "build:server": "tsc -p tsconfig.server.json",
-    "build": "npm run build:client && npm run build:server",
+    "build": "prisma generate && cross-env DATABASE_URL=file:./dev.db prisma db push --skip-generate --accept-data-loss && npm run build:client && npm run build:server",
     "start": "node dist/server/index.js",
+    "postinstall": "prisma generate",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev --name init",
     "seed:history": "tsx src/server/seedHistory.ts"
@@ -39,6 +40,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
     "concurrently": "^9.1.0",
+    "cross-env": "^10.1.0",
     "postcss": "^8.4.49",
     "prisma": "^5.22.0",
     "tailwindcss": "^3.4.15",
