@@ -31,6 +31,7 @@ export type Me = {
   teamName: string;
   email: string | null;
   formation: "442" | "433";
+  isAdmin: boolean;
 };
 
 export type Player = {

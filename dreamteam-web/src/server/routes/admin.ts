@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { prisma } from "../prisma.js";
-import { requireAuth, type AuthedRequest } from "../auth.js";
+import { requireAuth, requireAdmin, type AuthedRequest } from "../auth.js";
 import { syncBootstrap, syncGameweek, plFixturesByDay } from "../fpl.js";
 import {
   syncAll as syncFifaAll,
@@ -13,7 +13,7 @@ import { seedHistory } from "../seedHistory.js";
 const router = Router();
 const FOREVER = new Date("9999-12-31T00:00:00Z");
 
-router.use(requireAuth);
+router.use(requireAuth, requireAdmin);
 
 router.get("/status", async (_req, res) => {
   const [mode, bootstrap, managers, pendingBids, players, snapshots] = await Promise.all([

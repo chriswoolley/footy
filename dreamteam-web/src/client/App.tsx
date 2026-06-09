@@ -18,6 +18,12 @@ function RequireAuth({ children }: { children: JSX.Element }) {
   return children;
 }
 
+function RequireAdmin({ children }: { children: JSX.Element }) {
+  const { me } = useAuth();
+  if (!me?.isAdmin) return <Navigate to="/squad" replace />;
+  return children;
+}
+
 export default function App() {
   return (
     <Routes>
@@ -37,7 +43,14 @@ export default function App() {
         <Route path="/paper-talk" element={<PaperTalk />} />
         <Route path="/graphs" element={<Graphs />} />
         <Route path="/fixtures" element={<Fixtures />} />
-        <Route path="/admin" element={<Admin />} />
+        <Route
+          path="/admin"
+          element={
+            <RequireAdmin>
+              <Admin />
+            </RequireAdmin>
+          }
+        />
       </Route>
     </Routes>
   );

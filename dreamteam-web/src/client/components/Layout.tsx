@@ -51,9 +51,11 @@ export default function Layout() {
             <NavLink to="/fixtures" className={({ isActive }) => `${link} ${isActive ? active : ""}`}>
               Fixtures
             </NavLink>
-            <NavLink to="/admin" className={({ isActive }) => `${link} ${isActive ? active : ""}`}>
-              Admin
-            </NavLink>
+            {me.isAdmin && (
+              <NavLink to="/admin" className={({ isActive }) => `${link} ${isActive ? active : ""}`}>
+                Admin
+              </NavLink>
+            )}
           </nav>
           <div className="text-sm">
             <span className="font-semibold text-white">{me.teamName}</span>{" "}

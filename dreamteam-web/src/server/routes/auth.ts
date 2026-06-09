@@ -7,6 +7,7 @@ import {
   setAuthCookie,
   clearAuthCookie,
   requireAuth,
+  isAdminUsername,
   type AuthedRequest,
 } from "../auth.js";
 
@@ -59,7 +60,7 @@ router.get("/me", requireAuth, async (req: AuthedRequest, res) => {
     select: { id: true, username: true, teamName: true, email: true, formation: true },
   });
   if (!manager) return res.status(404).json({ error: "not found" });
-  res.json(manager);
+  res.json({ ...manager, isAdmin: isAdminUsername(manager.username) });
 });
 
 export default router;

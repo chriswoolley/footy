@@ -1,6 +1,7 @@
-# Local tooling / foreign VCS metadata
+# Local tooling / foreign VCS metadata / secrets
 .claude/
 .svn/
+.render_key
 
 # Delphi per-user and build artifacts
 *.local
