@@ -9,7 +9,7 @@ const COOKIE = "dt_token";
 // Only these usernames (case-insensitive) may use the Admin area. Override with
 // the ADMIN_USERNAMES env var (comma-separated) without touching code.
 const ADMIN_USERNAMES = new Set(
-  (process.env.ADMIN_USERNAMES ?? "chris,CWoolley")
+  (process.env.ADMIN_USERNAMES ?? "CWoolley")
     .split(",")
     .map((u) => u.trim().toLowerCase())
     .filter(Boolean),
