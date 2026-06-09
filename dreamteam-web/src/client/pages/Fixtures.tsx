@@ -61,7 +61,7 @@ export default function Fixtures() {
           </h2>
           <p className="text-sm text-slate-500">
             {matchCount} matches across {days.length} match days, sourced from{" "}
-            {isPl ? "fantasy.premierleague.com" : "openfootball/worldcup.json"}.
+            {isPl ? "fantasy.premierleague.com" : "play.fifa.com (FIFA WC Fantasy)"}.
           </p>
         </div>
         <input

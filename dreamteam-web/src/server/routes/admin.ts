@@ -3,11 +3,10 @@ import { prisma } from "../prisma.js";
 import { requireAuth, type AuthedRequest } from "../auth.js";
 import { syncBootstrap, syncGameweek, plFixturesByDay } from "../fpl.js";
 import {
-  syncTeamsAndPlayers as syncWcTeamsAndPlayers,
-  syncFixtures as syncWcFixtures,
-  wipePremierLeagueData,
+  syncAll as syncFifaAll,
+  wipePlayerData,
   fixturesByDay,
-} from "../wc2026.js";
+} from "../fifaFantasy.js";
 import { getBidMode, setBidMode, audit, type BidMode } from "../settings.js";
 import { seedHistory } from "../seedHistory.js";
 
@@ -281,10 +280,9 @@ router.post("/run-bids", async (req: AuthedRequest, res) => {
 
 router.post("/sync", async (req: AuthedRequest, res) => {
   try {
-    const { teams, players } = await syncWcTeamsAndPlayers();
-    const fixtures = await syncWcFixtures();
-    await audit(`manager:${req.managerId}`, `force-synced World Cup data`);
-    res.json({ ok: true, teams, players, fixtures });
+    const result = await syncFifaAll();
+    await audit(`manager:${req.managerId}`, `force-synced FIFA fantasy data`);
+    res.json({ ok: true, ...result });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -313,14 +311,13 @@ router.post("/sync-fpl", async (req: AuthedRequest, res) => {
 
 router.post("/migrate-to-wc", async (req: AuthedRequest, res) => {
   try {
-    await wipePremierLeagueData();
-    const { teams, players } = await syncWcTeamsAndPlayers();
-    const fixtures = await syncWcFixtures();
+    await wipePlayerData();
+    const result = await syncFifaAll();
     await audit(
       `manager:${req.managerId}`,
-      `migrated to World Cup data: ${teams} teams, ${players} players, ${fixtures} fixtures`,
+      `migrated to FIFA fantasy data: ${result.teams} teams, ${result.players} players, ${result.fixtures} fixtures`,
     );
-    res.json({ ok: true, teams, players, fixtures });
+    res.json({ ok: true, ...result });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

@@ -1,0 +1,30 @@
+# Render Blueprint — free-tier test deploy of the dreamteam-web app.
+# This repo (footy) is a monorepo: the web app lives in ./dreamteam-web,
+# so the service uses rootDir to build/run from that subdirectory.
+#
+# Single always-(ish)-on Node web service: Express serves the API + built React SPA.
+# Free-tier notes:
+#   * Instance sleeps after ~15 min idle (first request after ~50s cold start).
+#   * No persistent disk: the SQLite db (prisma/dev.db) is recreated on each deploy,
+#     so manager/squad/bid data resets. The cron sync re-populates teams/players/
+#     fixtures on boot. Fine for testing.
+services:
+  - type: web
+    name: dreamteam-web
+    runtime: node
+    plan: free
+    region: frankfurt # closest free region to the UK
+    rootDir: dreamteam-web
+    branch: master
+    healthCheckPath: /api/health
+    # --include=dev guarantees vite/tsc/prisma are installed even if NODE_ENV=production.
+    # prisma db push creates prisma/dev.db (schema only) into the deploy filesystem.
+    buildCommand: npm install --include=dev && npx prisma generate && npx prisma db push --skip-generate && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: JWT_SECRET
+        generateValue: true # Render generates a strong secret; not committed
+      - key: DATABASE_URL
+        value: file:./dev.db # resolved relative to prisma/ -> prisma/dev.db

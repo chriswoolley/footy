@@ -23,26 +23,33 @@ model Manager {
 }
 
 model Team {
-  id        Int      @id // matches FPL teams[].id
-  name      String
-  shortName String
-  players   Player[]
+  id           Int       @id // matches FIFA fantasy squads[].id (1..48)
+  name         String
+  shortName    String
+  group        String?   // 'a'..'l'
+  isEliminated Boolean   @default(false)
+  players      Player[]
+  homeFixtures Fixture[] @relation("HomeFixtures")
+  awayFixtures Fixture[] @relation("AwayFixtures")
 }
 
 model Player {
-  id          Int             @id // matches FPL elements[].id
-  webName     String
-  firstName   String
-  lastName    String
-  teamId      Int
-  team        Team            @relation(fields: [teamId], references: [id])
-  position    Int             // 1=GK, 2=DEF, 3=MID, 4=FWD
-  nowCost     Int             // £ × 10
-  totalPoints Int             @default(0)
-  status      String          @default("a")
-  news        String          @default("")
-  form        Float           @default(0)
-  photoCode   Int?            // FPL photo code: p{code}.png on premierleague.com
+  id              Int             @id // matches FIFA fantasy players[].id
+  webName         String
+  firstName       String
+  lastName        String
+  knownName       String?         // e.g. "Vini Jr." — preferred display label when set
+  teamId          Int
+  team            Team            @relation(fields: [teamId], references: [id])
+  position        Int             // 1=GK, 2=DEF, 3=MID, 4=FWD
+  nowCost         Int             // £ × 10 (real FIFA fantasy price)
+  totalPoints     Int             @default(0)
+  status          String          @default("a")
+  news            String          @default("")
+  form            Float           @default(0)
+  photoCode       Int?            // legacy FPL photo code
+  percentSelected Float?          // FIFA fantasy ownership %
+  oneToWatch      Boolean         @default(false)
 
   squad       SquadEntry[]
   bids        Bid[]
@@ -134,4 +141,43 @@ model SyncState {
   key   String @id // "bootstrap", "live:30", etc.
   value String
   when  DateTime @updatedAt
+}
+
+// A fantasy round (group stage matchday or knockout round).
+// FIFA's World Cup 2026 fantasy uses 8 rounds.
+model Round {
+  id        Int       @id
+  status    String    // "scheduled" | "live" | "completed"
+  startDate DateTime
+  endDate   DateTime
+  fixtures  Fixture[]
+}
+
+// A single match. id = FIFA's `tournament.id` from rounds.json.
+model Fixture {
+  id               Int      @id
+  roundId          Int
+  round            Round    @relation(fields: [roundId], references: [id])
+  date             DateTime
+  status           String   // "scheduled" | "in_progress" | "completed"
+  period           String   // "pre_match" | "first_half" | "half_time" | "second_half" | "full_time" | ...
+  minutes          Int      @default(0)
+  extraMinutes     Int      @default(0)
+  venueName        String
+  venueCity        String
+  homeSquadId      Int
+  homeSquad        Team     @relation("HomeFixtures", fields: [homeSquadId], references: [id])
+  awaySquadId      Int
+  awaySquad        Team     @relation("AwayFixtures", fields: [awaySquadId], references: [id])
+  homeScore        Int?
+  awayScore        Int?
+  homePenaltyScore Int?
+  awayPenaltyScore Int?
+  homeGoalScorers  String?  // JSON blob (goalscorers + assists)
+  awayGoalScorers  String?
+
+  @@index([roundId])
+  @@index([date])
+  @@index([homeSquadId])
+  @@index([awaySquadId])
 }
