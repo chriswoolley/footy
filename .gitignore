@@ -1,0 +1,13 @@
+# Local tooling / foreign VCS metadata
+.claude/
+.svn/
+
+# Delphi per-user and build artifacts
+*.local
+*.identcache
+*.dcu
+*.~*
+__history/
+__recovery/
+Win32/
+Win64/
