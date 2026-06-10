@@ -105,8 +105,11 @@ export default function Login() {
         <button className="w-full bg-brand-cyan text-white py-2 rounded font-medium hover:bg-brand-cyanDark transition-colors">
           {mode === "login" ? "Login" : "Create account"}
         </button>
-        <div className="text-center text-sm">
-          <Link to="/how-it-works" className="text-brand-cyan hover:underline">
+        <div className="text-center text-sm space-y-1">
+          <Link to="/guest" className="block text-brand-cyan hover:underline">
+            View standings as guest →
+          </Link>
+          <Link to="/how-it-works" className="block text-brand-cyan hover:underline">
             New here? How it works →
           </Link>
         </div>

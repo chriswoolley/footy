@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth";
+import { api } from "../api";
 import { Ticker } from "./Ticker";
 import { BrandBgLayers } from "./BrandBgLayers";
 
@@ -8,10 +10,26 @@ const link =
 const active = "text-white border-brand-cyan";
 
 export default function Layout() {
-  const { me, logout } = useAuth();
+  const { me, logout, refresh } = useAuth();
   const nav = useNavigate();
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState("");
+  const [saving, setSaving] = useState(false);
 
   if (!me) return <Outlet />;
+
+  async function saveName() {
+    const next = name.trim();
+    if (!next) return;
+    setSaving(true);
+    try {
+      await api.post("/api/auth/team-name", { teamName: next });
+      await refresh();
+      setEditing(false);
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50">
@@ -63,9 +81,50 @@ export default function Layout() {
               </NavLink>
             )}
           </nav>
-          <div className="text-sm">
-            <span className="font-semibold text-white">{me.teamName}</span>{" "}
-            <span className="text-white/60">({me.username})</span>
+          <div className="text-sm flex items-center gap-2">
+            {editing ? (
+              <span className="flex items-center gap-1">
+                <input
+                  className="text-slate-800 rounded px-2 py-0.5 text-sm w-40"
+                  value={name}
+                  maxLength={60}
+                  autoFocus
+                  onChange={(e) => setName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") saveName();
+                    if (e.key === "Escape") setEditing(false);
+                  }}
+                />
+                <button
+                  onClick={saveName}
+                  disabled={saving}
+                  className="text-xs px-2 py-0.5 rounded bg-brand-cyan text-white hover:bg-brand-cyanDark disabled:opacity-50"
+                >
+                  Save
+                </button>
+                <button
+                  onClick={() => setEditing(false)}
+                  className="text-xs px-1 text-white/70 hover:text-white"
+                  title="Cancel"
+                >
+                  ✕
+                </button>
+              </span>
+            ) : (
+              <>
+                <span className="font-semibold text-white">{me.teamName}</span>{" "}
+                <span className="text-white/60">({me.username})</span>
+                <button
+                  onClick={() => {
+                    setName(me.teamName);
+                    setEditing(true);
+                  }}
+                  className="text-xs px-2 py-1 rounded border border-white/30 text-white/90 hover:bg-white/10 hover:border-brand-cyan transition-colors"
+                >
+                  Rename
+                </button>
+              </>
+            )}
           </div>
           <button
             onClick={async () => {

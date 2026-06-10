@@ -10,6 +10,7 @@ import Graphs from "./pages/Graphs";
 import Admin from "./pages/Admin";
 import Fixtures from "./pages/Fixtures";
 import HowItWorks from "./pages/HowItWorks";
+import Guest from "./pages/Guest";
 import { useAuth } from "./auth";
 
 function RequireAuth({ children }: { children: JSX.Element }) {
@@ -30,6 +31,7 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/how-it-works" element={<HowItWorks />} />
+      <Route path="/guest" element={<Guest />} />
       <Route
         element={
           <RequireAuth>

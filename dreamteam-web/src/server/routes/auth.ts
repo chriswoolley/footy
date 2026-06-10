@@ -63,4 +63,17 @@ router.get("/me", requireAuth, async (req: AuthedRequest, res) => {
   res.json({ ...manager, isAdmin: isAdminUsername(manager.username) });
 });
 
+router.post("/team-name", requireAuth, async (req: AuthedRequest, res) => {
+  const { teamName } = req.body ?? {};
+  if (typeof teamName !== "string" || !teamName.trim()) {
+    return res.status(400).json({ error: "teamName required" });
+  }
+  const manager = await prisma.manager.update({
+    where: { id: req.managerId },
+    data: { teamName: teamName.trim().slice(0, 60) },
+    select: { id: true, username: true, teamName: true },
+  });
+  res.json(manager);
+});
+
 export default router;
