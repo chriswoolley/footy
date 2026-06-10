@@ -4,6 +4,7 @@ import { useAuth } from "../auth";
 import { api } from "../api";
 import { Ticker } from "./Ticker";
 import { BrandBgLayers } from "./BrandBgLayers";
+import { ScheduleNotice } from "./ScheduleNotice";
 
 const link =
   "px-3 py-2 text-sm font-medium tracking-wide text-white/85 hover:text-white border-b-2 border-transparent hover:border-brand-cyan/60 transition-colors";
@@ -33,6 +34,7 @@ export default function Layout() {
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50">
+      <ScheduleNotice />
       <header className="brand-bg text-white shadow-md relative">
         <BrandBgLayers />
         <div className="brand-swoosh" aria-hidden />
