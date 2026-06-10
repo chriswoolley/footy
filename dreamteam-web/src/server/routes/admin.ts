@@ -1,19 +1,14 @@
 import { Router } from "express";
 import { prisma } from "../prisma.js";
 import { requireAuth, requireAdmin, type AuthedRequest } from "../auth.js";
-import { syncBootstrap, syncGameweek, plFixturesByDay } from "../fpl.js";
-import {
-  syncAll as syncFifaAll,
-  wipePlayerData,
-  fixturesByDay,
-} from "../fifaFantasy.js";
+import { syncBootstrap, syncGameweek } from "../fpl.js";
+import { syncAll as syncFifaAll, wipePlayerData } from "../fifaFantasy.js";
 import { audit } from "../settings.js";
 import { seedHistory } from "../seedHistory.js";
 import { backupNow } from "../backup.js";
 import { resolvePendingBids } from "../bidding.js";
 
 const router = Router();
-const FOREVER = new Date("9999-12-31T00:00:00Z");
 
 router.use(requireAuth, requireAdmin);
 
@@ -134,17 +129,6 @@ router.post("/migrate-to-wc", async (req: AuthedRequest, res) => {
       `migrated to FIFA fantasy data: ${result.teams} teams, ${result.players} players, ${result.fixtures} fixtures`,
     );
     res.json({ ok: true, ...result });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-router.get("/fixtures", async (_req, res) => {
-  try {
-    const teamCount = await prisma.team.count();
-    // 20 teams ≈ PL; 48 ≈ WC. Fall back to WC if no teams are loaded.
-    const grouped = teamCount === 20 ? await plFixturesByDay() : await fixturesByDay();
-    res.json(grouped);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
