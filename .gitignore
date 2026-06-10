@@ -3,6 +3,12 @@
 .svn/
 .render_key
 
+# Local DB backups (host-mounted from Docker)
+db-backups/
+
+# IT handover bundle (contains a large exported image tar)
+handover/
+
 # Delphi per-user and build artifacts
 *.local
 *.identcache

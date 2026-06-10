@@ -1,11 +1,10 @@
 import { Router } from "express";
 import { prisma } from "../prisma.js";
 import { requireAuth, type AuthedRequest } from "../auth.js";
-import { getBidMode } from "../settings.js";
 
 const router = Router();
 const FOREVER = new Date("9999-12-31T00:00:00Z");
-const BUDGET = Number(process.env.BUDGET ?? 75);
+const BUDGET = Number(process.env.BUDGET ?? 150);
 
 router.use(requireAuth);
 
@@ -71,7 +70,7 @@ async function applyDuePending(managerId: number): Promise<number> {
 router.get("/", async (req: AuthedRequest, res) => {
   // Apply any due pending changes before the manager sees their squad.
   await applyDuePending(req.managerId!);
-  const [entries, soldEntries, bidMode] = await Promise.all([
+  const [entries, soldEntries] = await Promise.all([
     prisma.squadEntry.findMany({
       where: { managerId: req.managerId, untilAt: FOREVER },
       include: { player: { include: { team: true } } },
@@ -80,7 +79,6 @@ router.get("/", async (req: AuthedRequest, res) => {
       where: { managerId: req.managerId, untilAt: { lt: FOREVER } },
       select: { bid: true, sellPrice: true },
     }),
-    getBidMode(),
   ]);
   const activeSpent = entries.reduce((sum, e) => sum + e.bid, 0);
   // Realised losses on past sales: bid − sellPrice (or 0 if no sellPrice recorded).
@@ -93,7 +91,6 @@ router.get("/", async (req: AuthedRequest, res) => {
     budget: BUDGET,
     spent,
     balance: BUDGET - spent,
-    bidMode,
     entries: entries.map((e) => ({
       id: e.id,
       playerId: e.playerId,

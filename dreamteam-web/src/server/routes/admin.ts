@@ -7,8 +7,9 @@ import {
   wipePlayerData,
   fixturesByDay,
 } from "../fifaFantasy.js";
-import { getBidMode, setBidMode, audit, type BidMode } from "../settings.js";
+import { audit } from "../settings.js";
 import { seedHistory } from "../seedHistory.js";
+import { backupNow } from "../backup.js";
 
 const router = Router();
 const FOREVER = new Date("9999-12-31T00:00:00Z");
@@ -16,8 +17,7 @@ const FOREVER = new Date("9999-12-31T00:00:00Z");
 router.use(requireAuth, requireAdmin);
 
 router.get("/status", async (_req, res) => {
-  const [mode, bootstrap, managers, pendingBids, players, snapshots] = await Promise.all([
-    getBidMode(),
+  const [bootstrap, managers, pendingBids, players, snapshots] = await Promise.all([
     prisma.syncState.findUnique({ where: { key: "bootstrap" } }),
     prisma.manager.count(),
     prisma.bid.count({ where: { resolved: false } }),
@@ -32,7 +32,6 @@ router.get("/status", async (_req, res) => {
   });
 
   res.json({
-    mode,
     lastBootstrapSync: bootstrap?.value ?? null,
     lastLiveSync: lastLive[0]?.when ?? null,
     lastLiveGw: lastLive[0]?.key.replace("live:", "") ?? null,
@@ -45,14 +44,15 @@ router.get("/status", async (_req, res) => {
   });
 });
 
-router.post("/mode", async (req: AuthedRequest, res) => {
-  const { mode } = req.body ?? {};
-  if (mode !== "immediate" && mode !== "deferred") {
-    return res.status(400).json({ error: "mode must be 'immediate' or 'deferred'" });
+// Trigger an immediate DB snapshot (the daily backup runs automatically too).
+router.post("/backup", async (req: AuthedRequest, res) => {
+  try {
+    const file = await backupNow();
+    await audit(`manager:${req.managerId}`, `ran manual backup`);
+    res.json({ ok: true, file: file.split("/").pop() });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
   }
-  await setBidMode(mode as BidMode);
-  await audit(`manager:${req.managerId}`, `set bid mode to ${mode}`);
-  res.json({ ok: true, mode });
 });
 
 router.get("/pending-bids", async (_req, res) => {
@@ -147,7 +147,7 @@ router.post("/run-bids", async (req: AuthedRequest, res) => {
       );
       const winnerSpent =
         winnerEntries.reduce((s, e) => s + e.bid, 0) + winnerRealisedLosses;
-      const BUDGET = Number(process.env.BUDGET ?? 75);
+      const BUDGET = Number(process.env.BUDGET ?? 150);
       const MAX_SQUAD = Number(process.env.MAX_SQUAD ?? 20);
       if (winnerSpent + winner.amount > BUDGET + 1e-9 || winnerEntries.length >= MAX_SQUAD) {
         // Winner can no longer afford — skip; second highest gets a shot if any

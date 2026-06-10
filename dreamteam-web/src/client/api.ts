@@ -71,7 +71,6 @@ export type Squad = {
   budget: number;
   spent: number;
   balance: number;
-  bidMode: "immediate" | "deferred";
   entries: SquadEntryDTO[];
 };
 

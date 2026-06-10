@@ -1,11 +1,11 @@
 import { Router } from "express";
 import { prisma } from "../prisma.js";
 import { requireAuth, type AuthedRequest } from "../auth.js";
-import { getBidMode, audit } from "../settings.js";
+import { audit } from "../settings.js";
 
 const router = Router();
 const FOREVER = new Date("9999-12-31T00:00:00Z");
-const BUDGET = Number(process.env.BUDGET ?? 75);
+const BUDGET = Number(process.env.BUDGET ?? 150);
 const MIN_BID = 0.1; // £100k
 const MAX_SQUAD = Number(process.env.MAX_SQUAD ?? 20);
 
@@ -63,8 +63,6 @@ router.post("/", async (req: AuthedRequest, res) => {
     });
   }
 
-  const mode = await getBidMode();
-
   try {
     const result = await prisma.$transaction(async (tx) => {
       const owned = await tx.squadEntry.findFirst({
@@ -72,21 +70,10 @@ router.post("/", async (req: AuthedRequest, res) => {
       });
       if (owned) throw new BidError(400, "you already own this player");
 
-      // In immediate mode another manager already owning the player kills
-      // the bid up-front. In deferred mode we still permit the bid (the
-      // resolution step will decide who wins), but we never let *anyone*
-      // bid for a player they personally own.
-      if (mode === "immediate") {
-        const ownedByOther = await tx.squadEntry.findFirst({
-          where: { playerId, untilAt: FOREVER, NOT: { managerId: req.managerId } },
-          include: { manager: { select: { teamName: true } } },
-        });
-        if (ownedByOther) {
-          throw new BidError(409, `already owned by ${ownedByOther.manager.teamName}`);
-        }
-      }
+      // We permit bidding on a player someone else owns — the resolution step
+      // decides who wins. We only block bidding on a player you personally own.
 
-      // Already bid for this player (deferred mode only)
+      // One pending bid per player per manager.
       const existingBid = await tx.bid.findFirst({
         where: { managerId: req.managerId, playerId, resolved: false },
       });
@@ -129,31 +116,11 @@ router.post("/", async (req: AuthedRequest, res) => {
           managerId: req.managerId!,
           playerId,
           amount,
-          resolved: mode === "immediate",
-          won: mode === "immediate",
+          resolved: false,
+          won: false,
         },
       });
-
-      if (mode === "immediate") {
-        await tx.squadEntry.create({
-          data: {
-            managerId: req.managerId!,
-            playerId,
-            bid: amount,
-            untilAt: FOREVER,
-          },
-        });
-        await tx.paperTalk.create({
-          data: {
-            managerId: req.managerId,
-            teamName: player.team.name,
-            playerName: player.webName,
-            reason: "Signed",
-            bid: amount,
-          },
-        });
-      }
-      return { bidId: bid.id, mode };
+      return { bidId: bid.id };
     });
 
     res.json({ ok: true, ...result });

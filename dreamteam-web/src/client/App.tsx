@@ -9,6 +9,7 @@ import PaperTalk from "./pages/PaperTalk";
 import Graphs from "./pages/Graphs";
 import Admin from "./pages/Admin";
 import Fixtures from "./pages/Fixtures";
+import HowItWorks from "./pages/HowItWorks";
 import { useAuth } from "./auth";
 
 function RequireAuth({ children }: { children: JSX.Element }) {
@@ -28,6 +29,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/how-it-works" element={<HowItWorks />} />
       <Route
         element={
           <RequireAuth>

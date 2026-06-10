@@ -51,6 +51,12 @@ export default function Layout() {
             <NavLink to="/fixtures" className={({ isActive }) => `${link} ${isActive ? active : ""}`}>
               Fixtures
             </NavLink>
+            <NavLink
+              to="/how-it-works"
+              className={({ isActive }) => `${link} ${isActive ? active : ""}`}
+            >
+              Rules
+            </NavLink>
             {me.isAdmin && (
               <NavLink to="/admin" className={({ isActive }) => `${link} ${isActive ? active : ""}`}>
                 Admin

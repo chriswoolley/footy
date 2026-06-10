@@ -13,6 +13,26 @@ type Fixture = {
 
 type GroupedFixtures = Record<string, Fixture[]>;
 
+// Distinct, consistent colour per round label so fixtures in the same round
+// are easy to spot. Classes are literal strings so Tailwind keeps them.
+const ROUND_COLORS = [
+  "bg-blue-100 text-blue-800 border-blue-200",
+  "bg-emerald-100 text-emerald-800 border-emerald-200",
+  "bg-amber-100 text-amber-800 border-amber-200",
+  "bg-violet-100 text-violet-800 border-violet-200",
+  "bg-rose-100 text-rose-800 border-rose-200",
+  "bg-cyan-100 text-cyan-800 border-cyan-200",
+  "bg-lime-100 text-lime-800 border-lime-200",
+  "bg-fuchsia-100 text-fuchsia-800 border-fuchsia-200",
+  "bg-orange-100 text-orange-800 border-orange-200",
+  "bg-teal-100 text-teal-800 border-teal-200",
+];
+function roundColor(round: string): string {
+  let h = 0;
+  for (let i = 0; i < round.length; i++) h = (h * 31 + round.charCodeAt(i)) >>> 0;
+  return ROUND_COLORS[h % ROUND_COLORS.length];
+}
+
 export default function Fixtures() {
   const [byDay, setByDay] = useState<GroupedFixtures>({});
   const [filter, setFilter] = useState("");
@@ -20,7 +40,7 @@ export default function Fixtures() {
 
   useEffect(() => {
     api
-      .get<GroupedFixtures>("/api/admin/fixtures")
+      .get<GroupedFixtures>("/api/fixtures")
       .then((data) => setByDay(data))
       .finally(() => setLoading(false));
   }, []);
@@ -103,8 +123,20 @@ export default function Fixtures() {
                       <td className="p-2 text-right font-medium">{f.team1}</td>
                       <td className="p-2 text-center text-slate-400 text-xs">vs</td>
                       <td className="p-2 font-medium">{f.team2}</td>
-                      <td className="p-2 text-xs text-slate-500">
-                        {f.group ?? f.round}
+                      <td className="p-2 whitespace-nowrap">
+                        <span
+                          className={`inline-block px-2 py-0.5 rounded border text-xs font-semibold ${roundColor(
+                            f.round,
+                          )}`}
+                          title={`Round: ${f.round}`}
+                        >
+                          {f.round}
+                        </span>
+                        {f.group && (
+                          <span className="ml-1 inline-block px-1.5 py-0.5 rounded border border-slate-200 bg-slate-100 text-slate-600 text-[11px]">
+                            Grp {f.group}
+                          </span>
+                        )}
                       </td>
                       <td className="p-2 text-xs text-slate-400 hidden md:table-cell">
                         {f.ground ?? ""}

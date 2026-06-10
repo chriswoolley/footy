@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate, Navigate } from "react-router-dom";
+import { useNavigate, Navigate, Link } from "react-router-dom";
 import { api, type Me } from "../api";
 import { useAuth } from "../auth";
 import { BrandBgLayers } from "../components/BrandBgLayers";
@@ -105,6 +105,11 @@ export default function Login() {
         <button className="w-full bg-brand-cyan text-white py-2 rounded font-medium hover:bg-brand-cyanDark transition-colors">
           {mode === "login" ? "Login" : "Create account"}
         </button>
+        <div className="text-center text-sm">
+          <Link to="/how-it-works" className="text-brand-cyan hover:underline">
+            New here? How it works →
+          </Link>
+        </div>
       </form>
     </div>
   );

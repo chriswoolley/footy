@@ -66,16 +66,8 @@ export default function Market() {
             Balance: <strong>£{squad.balance.toFixed(1)}m</strong> · Spent: £
             {squad.spent.toFixed(1)}m
           </div>
-          <div
-            className={`text-xs px-2 py-1 rounded ${
-              squad.bidMode === "deferred"
-                ? "bg-amber-100 text-amber-800 border border-amber-200"
-                : "bg-green-100 text-green-800 border border-green-200"
-            }`}
-            title="Toggle on the Admin page"
-          >
-            Bidding mode:{" "}
-            <strong>{squad.bidMode === "deferred" ? "Deferred (auction)" : "Immediate"}</strong>
+          <div className="text-xs px-2 py-1 rounded bg-amber-100 text-amber-800 border border-amber-200">
+            Sealed-bid auction
           </div>
         </div>
       )}
@@ -215,12 +207,10 @@ export default function Market() {
                 </p>
               </div>
             </div>
-            {squad?.bidMode === "deferred" && (
-              <div className="text-xs bg-amber-50 border border-amber-200 text-amber-800 rounded p-2">
-                Deferred mode — this bid is pending until an admin runs the resolution. Higher
-                bids from other managers will outbid you.
-              </div>
-            )}
+            <div className="text-xs bg-amber-50 border border-amber-200 text-amber-800 rounded p-2">
+              Sealed-bid auction — your bid is pending until the next bid run. Higher bids from other
+              managers will outbid you.
+            </div>
             <input
               autoFocus
               className="w-full border rounded px-3 py-2"
@@ -241,7 +231,7 @@ export default function Market() {
                 onClick={placeBid}
                 className="px-3 py-1 bg-brand-cyan text-white rounded hover:bg-brand-cyanDark transition-colors"
               >
-                {squad?.bidMode === "deferred" ? "Place pending bid" : "Place bid"}
+                Place pending bid
               </button>
             </div>
           </div>

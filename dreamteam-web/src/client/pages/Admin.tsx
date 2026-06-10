@@ -3,7 +3,6 @@ import { api } from "../api";
 import { useSorted, sortableHeaderProps } from "../hooks/useSorted";
 
 type Status = {
-  mode: "immediate" | "deferred";
   lastBootstrapSync: string | null;
   lastLiveSync: string | null;
   lastLiveGw: string | null;
@@ -219,56 +218,6 @@ export default function Admin() {
               <span className="text-slate-500"> (GW{status.lastLiveGw})</span>
             )}
           </div>
-        </div>
-      </section>
-
-      {/* === Bid mode === */}
-      <section className="bg-white rounded shadow border border-slate-200 p-4">
-        <h3 className="font-bold mb-2">Bid mode</h3>
-        <p className="text-sm text-slate-600 mb-3">
-          {status.mode === "immediate" ? (
-            <>
-              <strong>Immediate</strong> — bids are accepted on the spot, no auction. Each player
-              can be owned by only one manager.
-            </>
-          ) : (
-            <>
-              <strong>Deferred</strong> — bids stack as pending. Multiple managers can bid for the
-              same player; the highest amount wins when you press <em>Run bids</em>.
-            </>
-          )}
-        </p>
-        <div className="flex gap-2">
-          <button
-            disabled={busy !== null || status.mode === "immediate"}
-            onClick={() =>
-              run("set mode immediate", () =>
-                api.post("/api/admin/mode", { mode: "immediate" }),
-              )
-            }
-            className={`px-3 py-1 rounded text-sm border ${
-              status.mode === "immediate"
-                ? "bg-slate-900 text-white border-slate-900"
-                : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
-            }`}
-          >
-            Immediate
-          </button>
-          <button
-            disabled={busy !== null || status.mode === "deferred"}
-            onClick={() =>
-              run("set mode deferred", () =>
-                api.post("/api/admin/mode", { mode: "deferred" }),
-              )
-            }
-            className={`px-3 py-1 rounded text-sm border ${
-              status.mode === "deferred"
-                ? "bg-slate-900 text-white border-slate-900"
-                : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
-            }`}
-          >
-            Deferred (auction)
-          </button>
         </div>
       </section>
 

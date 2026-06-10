@@ -11,7 +11,9 @@ import paperTalkRoutes from "./routes/paperTalk.js";
 import graphRoutes from "./routes/graphs.js";
 import adminRoutes from "./routes/admin.js";
 import tickerRoutes from "./routes/ticker.js";
+import fixtureRoutes from "./routes/fixtures.js";
 import { startScheduler } from "./scheduler.js";
+import { startBackups } from "./backup.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -28,6 +30,7 @@ app.use("/api/paper-talk", paperTalkRoutes);
 app.use("/api/graphs", graphRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/ticker", tickerRoutes);
+app.use("/api/fixtures", fixtureRoutes);
 
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
 
@@ -53,4 +56,5 @@ const port = Number(process.env.PORT ?? 3000);
 app.listen(port, () => {
   console.log(`[server] http://localhost:${port}`);
   startScheduler();
+  startBackups();
 });

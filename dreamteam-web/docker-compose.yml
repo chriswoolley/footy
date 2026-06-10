@@ -1,0 +1,40 @@
+# Local persistent deployment of the DreamTeam web app.
+#   docker compose up -d --build      # build + start in the background
+#   docker compose logs -f            # watch logs
+#   docker compose down               # stop (data is kept in the named volume)
+#   docker compose down -v            # stop AND delete the data volume
+#
+# Data lives in the named volume "dreamteam-data" and persists across restarts,
+# recreations, and image rebuilds. Open http://localhost:3000 after it starts.
+services:
+  web:
+    build: .
+    image: dreamteam-web:local
+    container_name: dreamteam-web
+    ports:
+      # Bind IPv4 on all host interfaces so other devices on the LAN can reach it
+      # via this PC's address (e.g. http://10.192.41.119:3000). Keep it LAN-only
+      # with the Windows firewall rule (allow TCP 3000 from LocalSubnet).
+      - "0.0.0.0:3000:3000"
+    environment:
+      DATABASE_URL: file:/data/dev.db
+      # Set a real secret in a .env file next to this compose file (JWT_SECRET=...)
+      JWT_SECRET: ${JWT_SECRET:-change-me-please-set-a-real-secret}
+      # Only this username gets the Admin tab.
+      ADMIN_USERNAMES: CWoolley
+      # Sync cadences (container clock is UTC):
+      SCORES_CRON: "0 * * * *" # player scores — hourly
+      FIXTURES_CRON: "0 */6 * * *" # new rounds/fixtures (e.g. R4, R5) — every 6h
+      # Daily DB backup (container time is UTC). Snapshots land in ./db-backups
+      # on the host; the newest BACKUP_KEEP are retained.
+      BACKUP_DIR: /backups
+      BACKUP_CRON: "0 2 * * *"
+      BACKUP_KEEP: "14"
+    volumes:
+      - dreamteam-data:/data
+      # Backups written to the host so they survive even `docker compose down -v`.
+      - ./db-backups:/backups
+    restart: unless-stopped
+
+volumes:
+  dreamteam-data:

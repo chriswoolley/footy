@@ -183,6 +183,54 @@ export async function syncPlayers(): Promise<number> {
   return players.length;
 }
 
+/**
+ * Capture per-round player scores into PointSnapshot, which the Standings table
+ * sums (joined to each manager's playing entries within their ownership window).
+ * FIFA exposes `players[].stats.roundPoints` (per-round points); we stamp each
+ * snapshot with the round's startDate so a manager only earns a round's points
+ * for players they owned when that round began. Empty until the tournament runs.
+ * Run AFTER syncPlayers (players must exist) and after syncFixtures (rounds exist).
+ */
+export async function syncRoundScores(): Promise<{ snapshots: number }> {
+  const players = await fetchJson<FifaPlayer[]>("players.json");
+  const rounds = await prisma.round.findMany({ select: { id: true, startDate: true } });
+  const roundStart = new Map<number, Date>(rounds.map((r) => [r.id, r.startDate]));
+  let snapshots = 0;
+  await prisma.$transaction(
+    async (tx) => {
+      for (const p of players) {
+        const rp = p.stats?.roundPoints;
+        if (!Array.isArray(rp) || rp.length === 0) continue;
+        for (let i = 0; i < rp.length; i++) {
+          const entry = rp[i];
+          // Each entry is either { round, points } or a bare number indexed by round.
+          const round = typeof entry === "number" ? i + 1 : entry?.round;
+          const points = typeof entry === "number" ? entry : entry?.points;
+          if (round == null || points == null) continue;
+          await tx.pointSnapshot.upsert({
+            where: { playerId_gameweek: { playerId: p.id, gameweek: round } },
+            update: {
+              points,
+              value: Math.round(p.price * 10),
+              kickoffTime: roundStart.get(round) ?? null,
+            },
+            create: {
+              playerId: p.id,
+              gameweek: round,
+              points,
+              value: Math.round(p.price * 10),
+              kickoffTime: roundStart.get(round) ?? null,
+            },
+          });
+          snapshots++;
+        }
+      }
+    },
+    { timeout: 120000 },
+  );
+  return { snapshots };
+}
+
 export async function syncFixtures(): Promise<{ rounds: number; fixtures: number }> {
   const rounds = await fetchJson<FifaRound[]>("rounds.json");
   let fixtureCount = 0;
